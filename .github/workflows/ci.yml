@@ -1,0 +1,53 @@
+name: spec-to-code gates
+
+on: [push, pull_request]
+
+jobs:
+  gates:
+    name: Spec, generation and guardrail gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: "Gate 1: spec house rules"
+        run: python gates/lint_spec.py
+      - name: "Gate 1b: standard OpenAPI rules (Spectral)"
+        run: npx --yes @stoplight/spectral-cli lint spec/openapi.yaml --ruleset .spectral.yaml --fail-severity error
+      - name: "Gate 2: generated code matches the spec"
+        run: python gates/check_generated.py
+      - name: "Gate 3: traceability requirement -> operation -> test"
+        run: python gates/trace_check.py
+      - name: "Gate 4: guardrails for business logic"
+        run: python gates/check_guardrails.py
+      - name: Tooling tests
+        run: python -m pytest tooling_tests -q
+
+  acceptance:
+    name: Acceptance and contract tests
+    needs: gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt schemathesis
+      - name: Check whether the business logic has been written yet
+        id: stub
+        run: |
+          if grep -q NotImplementedError src/logic/service.py; then
+            echo "Business logic is still the empty stub; skipping acceptance tests (task T1 not done yet)."
+            echo "stub=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: "Gate 5: acceptance and contract tests (spec-driven)"
+        if: steps.stub.outputs.stub != 'true'
+        run: python -m pytest tests -q
+      - name: "Gate 6: API fuzzing against the spec (Schemathesis)"
+        if: steps.stub.outputs.stub != 'true'
+        run: |
+          python -m src.app &
+          sleep 3
+          schemathesis run spec/openapi.yaml --url http://127.0.0.1:5000 --max-examples 50

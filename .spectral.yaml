@@ -1,0 +1,4 @@
+# Standard OpenAPI style rules, run in CI with Spectral. House rules live in gates/lint_spec.py.
+extends: ["spectral:oas"]
+rules:
+  info-contact: off

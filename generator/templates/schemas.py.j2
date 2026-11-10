@@ -1,0 +1,13 @@
+{{ header }}
+"""JSON Schemas resolved from {{ spec_path }}, used to validate requests and responses."""
+import json
+
+SCHEMAS = json.loads(r'''
+{{ schemas_json }}
+''')
+
+# operationId -> {"request": schema name or None, "params": {name: schema},
+#                 "responses": {status code: schema name}}
+OPERATIONS = json.loads(r'''
+{{ operations_json }}
+''')

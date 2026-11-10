@@ -1,0 +1,1 @@
+task,condition,date,start_time,end_time,break_minutes,lead_time_minutes,ai_attempts,first_run_passed,first_run_failed,done_passed,done_failed,rework_lines,hand_written_lines,spec_lines_changed,contract_test,notes

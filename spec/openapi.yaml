@@ -1,0 +1,240 @@
+openapi: 3.1.0
+info:
+  title: Offline Voucher API
+  version: 1.0.0
+  description: >
+    A small payment API used to compare specification-driven, AI-assisted development
+    with code-first development. Amounts are integers in minor units (öre / cents).
+  license:
+    name: MIT
+    identifier: MIT
+servers:
+  - url: http://127.0.0.1:5000
+tags:
+  - name: vouchers
+    description: Issue, look up and redeem vouchers
+
+paths:
+  /vouchers:
+    post:
+      tags: [vouchers]
+      operationId: issueVoucher
+      summary: Issue a new voucher
+      description: Creates an active voucher whose balance equals the requested amount.
+      x-requirements: [REQ-001, REQ-002, REQ-008]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IssueVoucherRequest"
+            example:
+              amount: 50000
+              currency: SEK
+      responses:
+        "201":
+          description: Voucher issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Voucher"
+        "422":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /vouchers/{voucherId}:
+    get:
+      tags: [vouchers]
+      operationId: getVoucher
+      summary: Look up a voucher
+      description: Returns the voucher with its current balance and status.
+      x-requirements: [REQ-003, REQ-008]
+      parameters:
+        - $ref: "#/components/parameters/VoucherId"
+      responses:
+        "200":
+          description: The voucher
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Voucher"
+        "404":
+          description: Unknown voucher
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: Invalid voucher id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /vouchers/{voucherId}/redemptions:
+    post:
+      tags: [vouchers]
+      operationId: redeemVoucher
+      summary: Redeem an amount from a voucher
+      description: >
+        Reduces the balance by the amount. Repeating a request with the same idempotency key
+        returns the original result without reducing the balance again. Only successful
+        redemptions are remembered, so a rejected request may be retried with the same key.
+      x-requirements: [REQ-004, REQ-005, REQ-006, REQ-007, REQ-008]
+      parameters:
+        - $ref: "#/components/parameters/VoucherId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RedeemRequest"
+            example:
+              amount: 12000
+              idempotencyKey: order-7f3a9c21
+      responses:
+        "200":
+          description: Redemption accepted (or the original result of a repeated request)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Redemption"
+        "404":
+          description: Unknown voucher
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Insufficient balance, or the voucher is already fully redeemed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+components:
+  parameters:
+    VoucherId:
+      name: voucherId
+      in: path
+      required: true
+      description: The voucher's id
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 64
+
+  schemas:
+    Currency:
+      description: Supported currencies
+      type: string
+      enum: [SEK, EUR]
+
+    IssueVoucherRequest:
+      description: Body for issuing a voucher
+      type: object
+      additionalProperties: false
+      required: [amount, currency]
+      properties:
+        amount:
+          description: Voucher value in minor units
+          type: integer
+          minimum: 1
+          maximum: 100000
+        currency:
+          $ref: "#/components/schemas/Currency"
+
+    Voucher:
+      description: A voucher and its current state
+      type: object
+      additionalProperties: false
+      required: [id, amount, balance, currency, status]
+      properties:
+        id:
+          description: Unique voucher id
+          type: string
+          minLength: 1
+          maxLength: 64
+        amount:
+          description: Original value in minor units
+          type: integer
+          minimum: 1
+          maximum: 100000
+        balance:
+          description: Remaining value in minor units
+          type: integer
+          minimum: 0
+          maximum: 100000
+        currency:
+          $ref: "#/components/schemas/Currency"
+        status:
+          description: active while balance > 0, redeemed when balance is 0
+          type: string
+          enum: [active, redeemed]
+
+    RedeemRequest:
+      description: Body for redeeming an amount
+      type: object
+      additionalProperties: false
+      required: [amount, idempotencyKey]
+      properties:
+        amount:
+          description: Amount to redeem in minor units
+          type: integer
+          minimum: 1
+          maximum: 100000
+        idempotencyKey:
+          description: Client-chosen key; repeating it returns the original result
+          type: string
+          minLength: 8
+          maxLength: 64
+
+    Redemption:
+      description: The result of a redemption
+      type: object
+      additionalProperties: false
+      required: [voucherId, amount, remainingBalance, status]
+      properties:
+        voucherId:
+          description: The redeemed voucher
+          type: string
+          minLength: 1
+          maxLength: 64
+        amount:
+          description: Amount redeemed in minor units
+          type: integer
+          minimum: 1
+          maximum: 100000
+        remainingBalance:
+          description: Balance after the redemption
+          type: integer
+          minimum: 0
+          maximum: 100000
+        status:
+          description: Voucher status after the redemption
+          type: string
+          enum: [active, redeemed]
+
+    Error:
+      description: The common error body for every error response (REQ-008)
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code:
+          description: Machine-readable error code
+          type: string
+          enum: [VALIDATION_ERROR, VOUCHER_NOT_FOUND, INSUFFICIENT_BALANCE, VOUCHER_REDEEMED]
+        message:
+          description: Human-readable explanation
+          type: string
+          minLength: 1

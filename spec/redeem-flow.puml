@@ -1,0 +1,34 @@
+@startuml redeem-flow
+title Redeem a voucher (operation redeemVoucher)
+' Linked requirements: REQ-004, REQ-005, REQ-006, REQ-007, REQ-008
+
+actor "Merchant terminal" as Client
+participant "Generated route\n(src/generated/routes.py)" as Route
+participant "VoucherService\n(src/logic/service.py)" as Service
+database "Voucher store" as Store
+
+Client -> Route : POST /vouchers/{voucherId}/redemptions\n{amount, idempotencyKey}
+Route -> Route : validate body against RedeemRequest
+alt body invalid
+  Route --> Client : 422 Error(VALIDATION_ERROR)
+else body valid
+  Route -> Service : redeem_voucher(voucher_id, body)
+  Service -> Store : find voucher
+  alt unknown voucher
+    Service --> Route : 404 Error(VOUCHER_NOT_FOUND)
+  else idempotencyKey seen before for this voucher
+    note right of Service : REQ-006: no second deduction
+    Service --> Route : 200 original Redemption
+  else voucher status is redeemed
+    Service --> Route : 409 Error(VOUCHER_REDEEMED)
+  else amount > balance
+    note right of Service : REQ-005: balance unchanged
+    Service --> Route : 409 Error(INSUFFICIENT_BALANCE)
+  else ok
+    Service -> Store : balance -= amount\nstatus = redeemed if balance == 0\nremember idempotencyKey
+    Service --> Route : 200 Redemption
+  end
+  Route -> Route : validate response against spec
+  Route --> Client : response
+end
+@enduml

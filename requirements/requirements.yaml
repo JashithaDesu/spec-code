@@ -1,0 +1,65 @@
+# Requirements for the Offline Voucher API.
+# Each requirement has an id that the spec (x-requirements) and the tests (@pytest.mark.req)
+# refer to, so gates/trace_check.py can prove every requirement is specified and tested.
+# Amounts are integers in minor units (öre / cents) to avoid rounding errors.
+
+requirements:
+  - id: REQ-001
+    title: Issue a voucher
+    text: A client can issue a voucher with an amount and a currency (SEK or EUR).
+      The new voucher gets a unique id, its balance equals the amount, and its status is "active".
+
+  - id: REQ-002
+    title: Amount limits
+    text: A voucher amount must be a whole number from 1 to 100000 (minor units).
+      Any other amount, a missing field, an unknown field or an unsupported currency is rejected
+      with 422 and no voucher is created.
+
+  - id: REQ-003
+    title: Look up a voucher
+    text: A client can fetch a voucher by id. An unknown id returns 404.
+
+  - id: REQ-004
+    title: Redeem part of a voucher
+    text: A client can redeem an amount from an active voucher. The balance is reduced by exactly
+      that amount and the response states the remaining balance.
+
+  - id: REQ-005
+    title: No negative balance
+    text: A redemption larger than the remaining balance is rejected with 409 and the balance
+      is unchanged.
+
+  - id: REQ-006
+    title: Idempotent redemption
+    text: Every redemption carries an idempotency key. Repeating a redemption with the same key
+      on the same voucher returns the original result and does not reduce the balance again.
+      Only successful redemptions are remembered, so a rejected request may be retried with the
+      same key.
+
+  - id: REQ-007
+    title: Fully redeemed vouchers
+    text: When the balance reaches 0 the voucher status becomes "redeemed". Any further
+      redemption with a new key is rejected with 409.
+
+  - id: REQ-008
+    title: Consistent errors
+    text: Every error response uses the same JSON body, {"code", "message"}, where code is one of
+      VALIDATION_ERROR (422), VOUCHER_NOT_FOUND (404), INSUFFICIENT_BALANCE (409) or
+      VOUCHER_REDEEMED (409), and message is a non-empty human-readable explanation.
+
+# The same interface described in prose. This is all a code-first developer gets; the
+# spec-driven condition gets spec/openapi.yaml instead. Both are judged by the same tests.
+interface: |
+  POST /vouchers
+    body {"amount": int, "currency": "SEK" | "EUR"}            -> 201 Voucher
+  GET /vouchers/{voucherId}                                    -> 200 Voucher
+  POST /vouchers/{voucherId}/redemptions
+    body {"amount": int 1..100000, "idempotencyKey": string of 8-64 characters}
+                                                               -> 200 Redemption
+  Voucher    = {"id": string, "amount": int, "balance": int, "currency": string,
+                "status": "active" | "redeemed"}
+  Redemption = {"voucherId": string, "amount": int, "remainingBalance": int,
+                "status": "active" | "redeemed"}
+  Voucher ids are 1-64 characters; a longer id is a 422 VALIDATION_ERROR.
+  Request bodies must be JSON objects with exactly the listed fields; anything else is 422.
+  Responses contain exactly the listed fields.

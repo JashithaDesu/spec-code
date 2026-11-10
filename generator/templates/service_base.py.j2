@@ -1,0 +1,26 @@
+{{ header }}
+"""The interface that hand-written or AI-written business logic must implement.
+
+Every method returns a tuple (status_code, payload_dict). The generated routes check that
+the status code is declared in the spec and that the payload matches its schema."""
+from abc import ABC, abstractmethod
+
+
+class {{ service_class }}Base(ABC):
+{% for op in operations %}
+{% if not loop.first %}
+
+{% endif %}
+    @abstractmethod
+    def {{ op.method_name }}(self{% for p in op.path_params %}, {{ p.py_name }}: str{% endfor %}{% if op.request %}, body: dict{% endif %}) -> tuple[int, dict]:
+        """{{ op.summary }}
+
+        {{ op.description | wordwrap(88) | indent(8) }}
+
+        Operation: {{ op.http_method | upper }} {{ op.path }}  ({{ op.operation_id }})
+        Requirements: {{ op.requirements | join(", ") }}
+{% if op.request %}        Body: {{ op.request }} (already validated against the spec)
+{% endif %}        Allowed responses:
+{% for status, schema in op.responses %}            {{ status }} -> {{ schema }}
+{% endfor %}        """
+{% endfor %}

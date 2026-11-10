@@ -1,0 +1,69 @@
+{{ header }}
+"""Flask routes for every operation in the spec.
+
+Each route validates path parameters and the request body against the spec, calls the
+service, and (unless disabled) checks that the service's response is declared in the spec
+and matches its schema. A response that breaks the contract becomes a 500 error, so a test
+or an API fuzzer notices immediately."""
+from flask import jsonify, request
+from jsonschema import Draft202012Validator
+from jsonschema.exceptions import best_match
+
+from .schemas import OPERATIONS, SCHEMAS
+
+
+class ContractViolation(Exception):
+    """The business logic returned something the spec does not allow."""
+
+
+def _first_error(schema, instance):
+    error = best_match(Draft202012Validator(schema).iter_errors(instance))
+    return None if error is None else error.message
+
+
+def _validation_error(message):
+    return jsonify({"code": "VALIDATION_ERROR", "message": message}), 422
+
+
+def _respond(operation_id, result, validate_responses):
+    try:
+        status, payload = result
+    except (TypeError, ValueError):
+        raise ContractViolation(f"{operation_id}: service must return (status_code, payload)")
+    allowed = OPERATIONS[operation_id]["responses"]
+    if validate_responses:
+        if str(status) not in allowed:
+            raise ContractViolation(f"{operation_id}: status {status} is not declared in the spec")
+        problem = _first_error(SCHEMAS[allowed[str(status)]], payload)
+        if problem:
+            raise ContractViolation(f"{operation_id}: {status} response does not match "
+                                    f"{allowed[str(status)]}: {problem}")
+    return jsonify(payload), status
+
+
+def register_routes(app, service, validate_responses=True):
+    @app.errorhandler(ContractViolation)
+    def _contract_violation(error):
+        app.logger.error("Contract violation: %s", error)
+        app.config.setdefault("CONTRACT_VIOLATIONS", []).append(str(error))
+        return jsonify({"code": "CONTRACT_VIOLATION", "message": str(error)}), 500
+{% for op in operations %}
+
+    @app.route("{{ op.flask_path }}", methods=["{{ op.http_method | upper }}"], endpoint="{{ op.operation_id }}")
+    def {{ op.method_name }}({% for p in op.path_params %}{{ p.name }}{% if not loop.last %}, {% endif %}{% endfor %}):
+{% for p in op.path_params %}
+        problem = _first_error(OPERATIONS["{{ op.operation_id }}"]["params"]["{{ p.name }}"], {{ p.name }})
+        if problem:
+            return _validation_error(f"{{ p.name }}: {problem}")
+{% endfor %}
+{% if op.request %}
+        body = request.get_json(silent=True)
+        if body is None:
+            return _validation_error("Request body must be valid JSON")
+        problem = _first_error(SCHEMAS["{{ op.request }}"], body)
+        if problem:
+            return _validation_error(problem)
+{% endif %}
+        result = service.{{ op.method_name }}({% for p in op.path_params %}{{ p.name }}{% if not loop.last or op.request %}, {% endif %}{% endfor %}{% if op.request %}body{% endif %})
+        return _respond("{{ op.operation_id }}", result, validate_responses)
+{% endfor %}
