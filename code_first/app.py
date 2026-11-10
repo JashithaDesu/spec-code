@@ -17,13 +17,16 @@ def create_app():
     vouchers = {}
     redemptions = {}
 
+    # REQ-008: Consistent errors
     def error_response(code, message, status_code):
-        """Helper to return consistent JSON error responses per REQ-008."""
+        """Helper to return consistent JSON error responses."""
         return jsonify({"code": code, "message": message}), status_code
 
+    # REQ-001: Issue a voucher
+    # REQ-002: Amount limits
     @app.route('/vouchers', methods=['POST'])
     def issue_voucher():
-        """REQ-001 & REQ-002: Issue a new voucher with amount limits and currency validation."""
+        """Issue a new voucher with amount limits and currency validation."""
         if not request.is_json:
             return error_response("VALIDATION_ERROR", "Request body must be JSON.", 422)
         
@@ -34,7 +37,7 @@ def create_app():
         amount = body.get("amount")
         currency = body.get("currency")
         
-        # Validate amount (must be integer between 1 and 100000 minor units)
+        # Validate amount (must be integer between 1 and 100000 minor units, excluding booleans)
         if not isinstance(amount, int) or isinstance(amount, bool) or not (1 <= amount <= 100000):
             return error_response("VALIDATION_ERROR", "Amount must be a whole number between 1 and 100000.", 422)
         
@@ -55,9 +58,10 @@ def create_app():
         vouchers[voucher_id] = voucher
         return jsonify(voucher), 201
 
+    # REQ-003: Look up a voucher
     @app.route('/vouchers/<voucher_id>', methods=['GET'])
     def get_voucher(voucher_id):
-        """REQ-003: Look up a voucher by ID."""
+        """Look up a voucher by ID."""
         if len(voucher_id) > 64:
             return error_response("VALIDATION_ERROR", "Voucher ID exceeds maximum length of 64 characters.", 422)
             
@@ -67,9 +71,14 @@ def create_app():
             
         return jsonify(voucher), 200
 
+    # REQ-004: Redeem part of a voucher
+    # REQ-005: No negative balance
+    # REQ-006: Idempotent redemption
+    # REQ-007: Fully redeemed vouchers
+    # REQ-008: Consistent errors
     @app.route('/vouchers/<voucher_id>/redemptions', methods=['POST'])
     def redeem_voucher(voucher_id):
-        """REQ-004, REQ-005, REQ-006, REQ-007: Redeem part or all of an active voucher idempotently."""
+        """Redeem part or all of an active voucher idempotently."""
         if len(voucher_id) > 64:
             return error_response("VALIDATION_ERROR", "Voucher ID exceeds maximum length of 64 characters.", 422)
             
@@ -121,7 +130,7 @@ def create_app():
             "status": voucher["status"]
         }
         
-        # Save successful redemption for idempotency checks
+        # Save successful redemption for idempotency checks (REQ-006)
         redemptions[key_tuple] = redemption_result
         return jsonify(redemption_result), 200
 
